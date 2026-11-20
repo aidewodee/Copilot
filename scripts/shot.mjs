@@ -137,33 +137,53 @@ async function checkPage(browser, port, scenario) {
     }
     await evaluate("document.fonts.ready.then(() => true)");
     const page = await evaluate(`(() => {
-      const heading = document.querySelector("main > h1");
-      const bounds = heading?.getBoundingClientRect();
+      const heading = document.querySelector("main h1");
+      const surface = document.querySelector(".game-shell");
+      const bounds = surface?.getBoundingClientRect();
       return {
         title: document.title,
         language: document.documentElement.lang,
         heading: heading?.textContent,
         headings: document.querySelectorAll("h1").length,
-        introduction: document.querySelector("main > p")?.textContent,
+        introduction: document.querySelector("main p")?.textContent,
+        startButton: document.querySelector("#startButton")?.textContent,
         viewport: document.querySelector('meta[name="viewport"]')?.content,
         assets: [...document.querySelectorAll('script[type="module"][src], link[rel="stylesheet"]')]
           .map(element => element.src || element.href),
-        styled: heading ? parseFloat(getComputedStyle(heading).fontSize) >= 32 &&
-          getComputedStyle(document.body).display === "grid" &&
-          getComputedStyle(document.documentElement).backgroundColor === "rgb(248, 250, 252)" : false,
-        fits: bounds ? bounds.left >= 0 && bounds.right <= innerWidth &&
-          bounds.top >= 0 && bounds.bottom <= innerHeight &&
-          document.documentElement.scrollWidth <= innerWidth : false
+        styled: heading && surface ? getComputedStyle(document.body).overflowX === "hidden" &&
+          getComputedStyle(surface).display === "grid" &&
+          getComputedStyle(document.documentElement).backgroundColor === "rgb(16, 23, 24)" : false,
+        fits: bounds ? {
+          left: bounds.left,
+          right: bounds.right,
+          top: bounds.top,
+          bottom: bounds.bottom,
+          width: innerWidth,
+          height: innerHeight,
+          scrollWidth: document.documentElement.scrollWidth
+        } : null
       };
     })()`);
-    assert.equal(page.title, "Hello, world!");
+    assert.equal(page.title, "Rocket Rally");
     assert.equal(page.language, "en");
-    assert.equal(page.heading, "Hello, world!");
+    assert.equal(page.heading, "Rocket Rally");
     assert.equal(page.headings, 1);
-    assert.equal(page.introduction, "Your next static web app starts here.");
+    assert.equal(
+      page.introduction,
+      "Drive a combat car and destroy every rival vehicle with rockets.",
+    );
+    assert.equal(page.startButton, "START ENGINE");
     assert.equal(page.viewport, "width=device-width, initial-scale=1.0");
     assert.ok(page.styled, "The built stylesheet must affect the heading.");
-    assert.ok(page.fits, "The heading must fit the viewport without horizontal overflow.");
+    assert.ok(
+      page.fits &&
+        page.fits.left >= 0 &&
+        page.fits.right <= page.fits.width &&
+        page.fits.top >= 0 &&
+        page.fits.bottom <= page.fits.height &&
+        page.fits.scrollWidth <= page.fits.width,
+      `The game surface must fit the viewport without overflow: ${JSON.stringify(page.fits)}`,
+    );
     assert.ok(page.assets.length >= 2, "Discover both built JavaScript and stylesheet assets.");
     for (const asset of page.assets) {
       assert.ok(asset.startsWith(`${url}assets/`), `Asset escapes hosting prefix: ${asset}`);
