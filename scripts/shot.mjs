@@ -147,6 +147,7 @@ async function checkPage(browser, port, scenario) {
         headings: document.querySelectorAll("h1").length,
         introduction: document.querySelector("main p")?.textContent,
         startButton: document.querySelector("#startButton")?.textContent,
+        modes: [...document.querySelectorAll("#modeChoices button strong")].map(button => button.textContent),
         viewport: document.querySelector('meta[name="viewport"]')?.content,
         assets: [...document.querySelectorAll('script[type="module"][src], link[rel="stylesheet"]')]
           .map(element => element.src || element.href),
@@ -173,6 +174,7 @@ async function checkPage(browser, port, scenario) {
       "Drive a combat car and destroy every rival vehicle with rockets.",
     );
     assert.equal(page.startButton, "START ENGINE");
+    assert.deepEqual(page.modes, ["TUTORIAL", "SOLO CAMPAIGN"], "The game offers only solo modes.");
     assert.equal(page.viewport, "width=device-width, initial-scale=1.0");
     assert.ok(page.styled, "The built stylesheet must affect the heading.");
     assert.ok(

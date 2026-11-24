@@ -1,6 +1,4 @@
 import "./style.css";
-import type Peer from "peerjs";
-import type { DataConnection } from "peerjs";
 
 type Point = { x: number; y: number };
 
@@ -22,29 +20,7 @@ type Rocket = Point & {
   angle: number;
   life: number;
   explosive: boolean;
-  owner: "player" | "opponent" | "enemy";
-};
-
-type RemoteInput = {
-  forward: boolean;
-  backward: boolean;
-  left: boolean;
-  right: boolean;
-  shooting: boolean;
-  angle: number;
-  pitch: number;
-};
-
-type PlayerSnapshot = Point & { angle: number };
-type MatchSnapshot = {
-  type: "snapshot";
-  hostPlayer: PlayerSnapshot;
-  guestPlayer: PlayerSnapshot;
-  hostHealth: number;
-  guestHealth: number;
-  hostKills: number;
-  guestKills: number;
-  rockets: Rocket[];
+  owner: "player" | "enemy";
 };
 
 type Particle = Point & {
@@ -72,7 +48,7 @@ app.innerHTML = `
         <div class="divider"></div>
         <div><span class="label">BEST</span><strong id="best">0000</strong></div>
         <div class="divider"></div>
-        <div><span id="levelLabel" class="label">LEVEL</span><strong id="level">1/5</strong></div>
+        <div><span class="label">LEVEL</span><strong id="level">1/5</strong></div>
       </div>
       <button id="pauseButton" class="pause-button" type="button" aria-label="Pause game">Ⅱ</button>
     </header>
@@ -96,12 +72,6 @@ app.innerHTML = `
         <div class="health-track"><div id="healthBar" class="health-bar"></div></div>
         <strong id="healthText">100</strong>
       </div>
-      <div id="opponentPanel" class="opponent-panel" aria-label="Opponent health" hidden>
-        <span class="label">RIVAL ARMOR</span>
-        <div class="health-track"><div id="opponentHealthBar" class="health-bar"></div></div>
-        <strong id="opponentHealthText">100</strong>
-      </div>
-
       <div id="message" class="game-message" role="status" aria-live="polite">
         <span id="messageKicker">READY?</span>
         <strong id="messageTitle">ROCKET RALLY</strong>
@@ -109,25 +79,7 @@ app.innerHTML = `
         <div id="modeChoices" class="mode-choices" aria-label="Choose a game mode">
           <button id="tutorialModeButton" type="button"><strong>TUTORIAL</strong><span>Learn the five levels</span></button>
           <button id="campaignModeButton" type="button"><strong>SOLO CAMPAIGN</strong><span>Play all five levels</span></button>
-          <button id="multiplayerModeButton" type="button"><strong>VERSUS MULTIPLAYER</strong><span>Challenge a friend online</span></button>
         </div>
-        <section id="onlinePanel" class="online-panel" aria-label="Online match" hidden>
-          <button id="hostRoomButton" type="button">CREATE ROOM</button>
-          <label for="roomCodeInput">ROOM CODE</label>
-          <div class="room-join">
-            <input id="roomCodeInput" type="text" autocomplete="off" spellcheck="false" aria-label="Room code" placeholder="Enter your friend's code">
-            <button id="joinRoomButton" type="button">JOIN</button>
-          </div>
-          <p id="networkStatus" role="status" aria-live="polite">Create a room or enter a friend's code.</p>
-          <div id="invitePanel" class="invite-panel" hidden>
-            <label for="inviteLinkInput">INVITE LINK</label>
-            <div class="room-join">
-              <input id="inviteLinkInput" type="text" readonly aria-label="Invite link">
-              <button id="copyInviteButton" type="button">COPY</button>
-            </div>
-          </div>
-          <button id="backToModesButton" class="secondary-button" type="button">BACK</button>
-        </section>
         <div id="carChoices" class="car-choices" aria-label="Choose a car">
           <button type="button" data-car="double">
             <strong>DOUBLE</strong>
@@ -167,10 +119,6 @@ const ammoElement = document.querySelector<HTMLElement>("#ammo")!;
 const healthBar = document.querySelector<HTMLElement>("#healthBar")!;
 const healthText = document.querySelector<HTMLElement>("#healthText")!;
 const levelElement = document.querySelector<HTMLElement>("#level")!;
-const levelLabel = document.querySelector<HTMLElement>("#levelLabel")!;
-const opponentPanel = document.querySelector<HTMLElement>("#opponentPanel")!;
-const opponentHealthBar = document.querySelector<HTMLElement>("#opponentHealthBar")!;
-const opponentHealthText = document.querySelector<HTMLElement>("#opponentHealthText")!;
 const message = document.querySelector<HTMLElement>("#message")!;
 const messageKicker = document.querySelector<HTMLElement>("#messageKicker")!;
 const messageTitle = document.querySelector<HTMLElement>("#messageTitle")!;
@@ -179,18 +127,11 @@ const startButton = document.querySelector<HTMLButtonElement>("#startButton")!;
 const pauseButton = document.querySelector<HTMLButtonElement>("#pauseButton")!;
 const carChoices = document.querySelector<HTMLElement>("#carChoices")!;
 const modeChoices = document.querySelector<HTMLElement>("#modeChoices")!;
-const onlinePanel = document.querySelector<HTMLElement>("#onlinePanel")!;
-const networkStatus = document.querySelector<HTMLElement>("#networkStatus")!;
-const roomCodeInput = document.querySelector<HTMLInputElement>("#roomCodeInput")!;
-const invitePanel = document.querySelector<HTMLElement>("#invitePanel")!;
-const inviteLinkInput = document.querySelector<HTMLInputElement>("#inviteLinkInput")!;
-const hostRoomButton = document.querySelector<HTMLButtonElement>("#hostRoomButton")!;
-const joinRoomButton = document.querySelector<HTMLButtonElement>("#joinRoomButton")!;
 
 const keys = new Set<string>();
 let state: "menu" | "ready" | "tutorialReady" | "playing" | "paused" | "choosing" | "won" | "lost" =
   "menu";
-let gameMode: "campaign" | "tutorial" | "multiplayer" = "campaign";
+let gameMode: "campaign" | "tutorial" = "campaign";
 let score = 0;
 let best = Number(localStorage.getItem("rocket-rally-best") ?? 0);
 let health = 100;
@@ -199,23 +140,6 @@ let shooting = false;
 let lastTime = performance.now();
 let shake = 0;
 let level = 1;
-let opponentHealth = 100;
-let hostKills = 0;
-let guestKills = 0;
-let opponentRocketCooldown = 0;
-let remoteInput: RemoteInput = {
-  forward: false,
-  backward: false,
-  left: false,
-  right: false,
-  shooting: false,
-  angle: Math.PI / 2,
-  pitch: Math.PI / 9,
-};
-let peer: Peer | null = null;
-let connection: DataConnection | null = null;
-let networkRole: "host" | "guest" | null = null;
-let networkTimer = 0;
 const cameraOrbitDistance = 560;
 const cameraTargetHeight = 24;
 const cameraLookHeight = cameraTargetHeight + 32;
@@ -239,7 +163,6 @@ let carType: CarType = "standard";
 
 const player = { x: 640, y: 560, angle: -Math.PI / 2, radius: 27, speed: 0 };
 const camera = { x: player.x, y: player.y };
-const remotePlayer = { x: 700, y: 560, angle: Math.PI / 2, radius: 27, speed: 0 };
 let cameraAngle = player.angle;
 let cameraPitch = Math.PI / 9;
 const projection = {
@@ -312,27 +235,14 @@ const tutorialLessons = [
 function showMenu() {
   clearInputs();
   state = "menu";
-  connection?.close();
-  peer?.destroy();
-  connection = null;
-  peer = null;
-  networkRole = null;
   gameMode = "campaign";
   messageKicker.textContent = "READY?";
   messageTitle.textContent = "ROCKET RALLY";
   messageText.textContent = "Choose how you want to play.";
   modeChoices.hidden = false;
-  onlinePanel.hidden = true;
   carChoices.classList.remove("visible");
   startButton.hidden = true;
   pauseButton.hidden = true;
-  opponentPanel.hidden = true;
-  hostRoomButton.disabled = false;
-  joinRoomButton.disabled = false;
-  roomCodeInput.value = "";
-  inviteLinkInput.value = "";
-  networkStatus.textContent = "Create a room or enter a friend's code.";
-  invitePanel.hidden = true;
   message.classList.add("visible");
   updateHud();
 }
@@ -347,299 +257,13 @@ function showTutorialIntro() {
   startButton.hidden = false;
   startButton.textContent = "BEGIN LESSON";
   modeChoices.hidden = true;
-  onlinePanel.hidden = true;
   carChoices.classList.remove("visible");
   message.classList.add("visible");
-}
-
-function showOnlinePanel() {
-  modeChoices.hidden = true;
-  onlinePanel.hidden = false;
-  messageKicker.textContent = "ONLINE VERSUS";
-  messageTitle.textContent = "CHALLENGE A FRIEND";
-  messageText.textContent = "Create a room and share its invite link, or join with a room code.";
-  startButton.hidden = true;
-  carChoices.classList.remove("visible");
-  invitePanel.hidden = true;
-  message.classList.add("visible");
-  roomCodeInput.focus();
-}
-
-function setNetworkStatus(text: string) {
-  networkStatus.textContent = text;
-}
-
-function isRemoteInput(data: unknown): data is RemoteInput {
-  if (!data || typeof data !== "object") return false;
-  const input = data as Partial<RemoteInput>;
-  return (
-    typeof input.forward === "boolean" &&
-    typeof input.backward === "boolean" &&
-    typeof input.left === "boolean" &&
-    typeof input.right === "boolean" &&
-    typeof input.shooting === "boolean" &&
-    typeof input.angle === "number" &&
-    Number.isFinite(input.angle) &&
-    typeof input.pitch === "number" &&
-    Number.isFinite(input.pitch)
-  );
-}
-
-function isMatchSnapshot(data: unknown): data is MatchSnapshot {
-  if (!data || typeof data !== "object") return false;
-  const snapshot = data as Partial<MatchSnapshot>;
-  const validPlayer = (value: unknown): value is PlayerSnapshot => {
-    if (!value || typeof value !== "object") return false;
-    const candidate = value as Partial<PlayerSnapshot>;
-    return (
-      typeof candidate.x === "number" &&
-      Number.isFinite(candidate.x) &&
-      typeof candidate.y === "number" &&
-      Number.isFinite(candidate.y) &&
-      typeof candidate.angle === "number" &&
-      Number.isFinite(candidate.angle)
-    );
-  };
-  return (
-    snapshot.type === "snapshot" &&
-    validPlayer(snapshot.hostPlayer) &&
-    validPlayer(snapshot.guestPlayer) &&
-    typeof snapshot.hostHealth === "number" &&
-    Number.isFinite(snapshot.hostHealth) &&
-    typeof snapshot.guestHealth === "number" &&
-    Number.isFinite(snapshot.guestHealth) &&
-    typeof snapshot.hostKills === "number" &&
-    Number.isFinite(snapshot.hostKills) &&
-    typeof snapshot.guestKills === "number" &&
-    Number.isFinite(snapshot.guestKills) &&
-    Array.isArray(snapshot.rockets) &&
-    snapshot.rockets.length <= 100 &&
-    snapshot.rockets.every((rocket) => {
-      if (!rocket || typeof rocket !== "object") return false;
-      const candidate = rocket as Partial<Rocket>;
-      return (
-        typeof candidate.x === "number" &&
-        Number.isFinite(candidate.x) &&
-        typeof candidate.y === "number" &&
-        Number.isFinite(candidate.y) &&
-        typeof candidate.z === "number" &&
-        Number.isFinite(candidate.z) &&
-        typeof candidate.vx === "number" &&
-        Number.isFinite(candidate.vx) &&
-        typeof candidate.vy === "number" &&
-        Number.isFinite(candidate.vy) &&
-        typeof candidate.vz === "number" &&
-        Number.isFinite(candidate.vz) &&
-        typeof candidate.angle === "number" &&
-        Number.isFinite(candidate.angle) &&
-        typeof candidate.life === "number" &&
-        Number.isFinite(candidate.life) &&
-        typeof candidate.explosive === "boolean" &&
-        (candidate.owner === "player" || candidate.owner === "opponent")
-      );
-    })
-  );
-}
-
-function receiveNetworkData(data: unknown) {
-  if (!data || typeof data !== "object") return;
-  const messageData = data as { type?: unknown; winner?: unknown };
-  if (networkRole === "host" && isRemoteInput(data)) {
-    remoteInput = {
-      ...data,
-      angle: Math.atan2(Math.sin(data.angle), Math.cos(data.angle)),
-      pitch: Math.max(minimumCameraPitch, Math.min(Math.PI / 2, data.pitch)),
-    };
-  } else if (networkRole === "guest" && isMatchSnapshot(data)) {
-    const ownPlayer = data.guestPlayer;
-    player.x = ownPlayer.x;
-    player.y = ownPlayer.y;
-    player.angle = ownPlayer.angle;
-    remotePlayer.x = data.hostPlayer.x;
-    remotePlayer.y = data.hostPlayer.y;
-    remotePlayer.angle = data.hostPlayer.angle;
-    health = Math.max(0, Math.min(100, data.guestHealth));
-    opponentHealth = Math.max(0, Math.min(100, data.hostHealth));
-    hostKills = data.hostKills;
-    guestKills = data.guestKills;
-    rockets = data.rockets.filter(
-      (rocket): rocket is Rocket => rocket.owner === "player" || rocket.owner === "opponent",
-    );
-    camera.x = player.x;
-    camera.y = player.y;
-    score = guestKills;
-    updateHud();
-  } else if (
-    networkRole === "guest" &&
-    messageData.type === "ended" &&
-    (messageData.winner === "host" || messageData.winner === "guest")
-  ) {
-    showEnd(messageData.winner === networkRole);
-  }
-}
-
-function listenToConnection(dataConnection: DataConnection) {
-  dataConnection.on("data", receiveNetworkData);
-  dataConnection.on("close", () => {
-    if (state === "menu") return;
-    setNetworkStatus("The other player disconnected.");
-    if (state === "playing") {
-      state = "lost";
-      unlockPointer();
-      messageKicker.textContent = "CONNECTION LOST";
-      messageTitle.textContent = "MATCH ENDED";
-      messageText.textContent = "Your opponent left the room.";
-      startButton.hidden = false;
-      startButton.textContent = "BACK TO MENU";
-      message.classList.add("visible");
-    }
-  });
-  dataConnection.on("error", (error) => {
-    setNetworkStatus(`Connection error: ${error.message}`);
-  });
-}
-
-function networkErrorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function createRoom() {
-  connection?.close();
-  peer?.destroy();
-  networkRole = null;
-  setNetworkStatus("Connecting to the PeerJS room service...");
-  hostRoomButton.disabled = true;
-  try {
-    const PeerConstructor = (await import("peerjs")).default;
-    if (onlinePanel.hidden || gameMode !== "multiplayer") return;
-    const newPeer = new PeerConstructor();
-    peer = newPeer;
-    newPeer.on("open", (id) => {
-      roomCodeInput.value = id;
-      const inviteUrl = new URL(window.location.href);
-      inviteUrl.searchParams.set("room", id);
-      inviteLinkInput.value = inviteUrl.toString();
-      invitePanel.hidden = false;
-      hostRoomButton.disabled = true;
-      setNetworkStatus("Room is ready. Share the link or room code with one friend.");
-    });
-    newPeer.on("connection", (incoming) => {
-      if (connection) {
-        incoming.close();
-        return;
-      }
-      connection = incoming;
-      networkRole = "host";
-      listenToConnection(incoming);
-      incoming.on("open", () => startMultiplayerMatch("host"));
-    });
-    newPeer.on("error", (error) => {
-      setNetworkStatus(`Could not create room: ${error.message}`);
-      hostRoomButton.disabled = false;
-    });
-  } catch (error) {
-    setNetworkStatus(`Could not create room: ${networkErrorMessage(error)}`);
-    hostRoomButton.disabled = false;
-  }
-}
-
-async function joinRoom() {
-  const roomId = roomCodeInput.value.trim();
-  if (!roomId) {
-    setNetworkStatus("Enter the room code your friend shared.");
-    roomCodeInput.focus();
-    return;
-  }
-  connection?.close();
-  peer?.destroy();
-  networkRole = null;
-  setNetworkStatus("Connecting to your friend's room...");
-  joinRoomButton.disabled = true;
-  try {
-    const PeerConstructor = (await import("peerjs")).default;
-    if (onlinePanel.hidden || gameMode !== "multiplayer") return;
-    const newPeer = new PeerConstructor();
-    peer = newPeer;
-    newPeer.on("open", () => {
-      const outgoing = newPeer.connect(roomId, { reliable: true });
-      connection = outgoing;
-      listenToConnection(outgoing);
-      outgoing.on("open", () => {
-        startMultiplayerMatch("guest");
-      });
-    });
-    newPeer.on("error", (error) => {
-      setNetworkStatus(`Could not join room: ${error.message}`);
-      joinRoomButton.disabled = false;
-    });
-  } catch (error) {
-    setNetworkStatus(`Could not join room: ${networkErrorMessage(error)}`);
-    joinRoomButton.disabled = false;
-  }
-}
-
-function startMultiplayerMatch(role: "host" | "guest") {
-  resetGame();
-  gameMode = "multiplayer";
-  networkRole = role;
-  state = "playing";
-  enemies = [];
-  player.x = role === "host" ? 510 : 770;
-  player.y = 560;
-  player.angle = role === "host" ? 0 : Math.PI;
-  cameraAngle = player.angle;
-  remotePlayer.x = role === "host" ? 770 : 510;
-  remotePlayer.y = 560;
-  remotePlayer.angle = role === "host" ? Math.PI : 0;
-  opponentHealth = 100;
-  hostKills = 0;
-  guestKills = 0;
-  networkTimer = 0;
-  remoteInput = {
-    forward: false,
-    backward: false,
-    left: false,
-    right: false,
-    shooting: false,
-    angle: remotePlayer.angle,
-    pitch: Math.PI / 9,
-  };
-  rockets = [];
-  opponentPanel.hidden = false;
-  pauseButton.hidden = true;
-  modeChoices.hidden = true;
-  onlinePanel.hidden = true;
-  startButton.hidden = true;
-  message.classList.remove("visible");
-  setNetworkStatus("Connected. Battle your opponent!");
-  gameCanvas.focus();
-  updateHud();
-}
-
-function sendNetworkMessage(data: RemoteInput | MatchSnapshot | { type: "ended"; winner: string }) {
-  if (connection?.open) void connection.send(data);
-}
-
-function finishMultiplayerMatch(winner: "host" | "guest") {
-  if (state !== "playing") return;
-  sendNetworkMessage({ type: "ended", winner });
-  showEnd(winner === networkRole);
 }
 
 function clearInputs() {
   keys.clear();
   shooting = false;
-  if (networkRole === "guest") {
-    sendNetworkMessage({
-      forward: false,
-      backward: false,
-      left: false,
-      right: false,
-      shooting: false,
-      angle: cameraAngle,
-      pitch: cameraPitch,
-    });
-  }
 }
 
 function resetGame() {
@@ -651,7 +275,6 @@ function resetGame() {
   player.y = 560;
   player.angle = -Math.PI / 2;
   player.speed = 0;
-  remotePlayer.speed = 0;
   camera.x = player.x;
   camera.y = player.y;
   cameraAngle = player.angle;
@@ -659,15 +282,12 @@ function resetGame() {
   rockets = [];
   particles = [];
   enemies = createEnemies();
-  opponentHealth = 100;
   updateHud();
 }
 
 function startGame() {
   resetGame();
   modeChoices.hidden = true;
-  onlinePanel.hidden = true;
-  opponentPanel.hidden = true;
   pauseButton.textContent = "Ⅱ";
   pauseButton.hidden = false;
   if (gameMode === "tutorial") {
@@ -681,17 +301,10 @@ function startGame() {
 }
 
 function updateHud() {
-  scoreElement.textContent =
-    gameMode === "multiplayer"
-      ? String(networkRole === "guest" ? guestKills : hostKills).padStart(4, "0")
-      : score.toString().padStart(4, "0");
-  levelLabel.textContent = gameMode === "multiplayer" ? "WINS" : "LEVEL";
-  levelElement.textContent =
-    gameMode === "multiplayer" ? `${hostKills} - ${guestKills}` : `${level}/5`;
+  scoreElement.textContent = score.toString().padStart(4, "0");
+  levelElement.textContent = `${level}/5`;
   healthText.textContent = Math.max(0, Math.ceil(health)).toString();
   healthBar.style.width = `${Math.max(0, health)}%`;
-  opponentHealthText.textContent = Math.max(0, Math.ceil(opponentHealth)).toString();
-  opponentHealthBar.style.width = `${Math.max(0, opponentHealth)}%`;
   ammoElement.textContent = rocketCooldown <= 0 ? "READY" : "RELOAD";
   if (score > best) {
     best = score;
@@ -726,16 +339,6 @@ function showEnd(won: boolean) {
   unlockPointer();
   localStorage.setItem("rocket-rally-best", best.toString());
   carChoices.classList.remove("visible");
-
-  if (gameMode === "multiplayer") {
-    messageKicker.textContent = won ? "VICTORY" : "DEFEAT";
-    messageTitle.textContent = won ? "YOU WIN" : "YOU LOSE";
-    messageText.textContent = "The versus match is over.";
-    startButton.hidden = false;
-    startButton.textContent = "BACK TO MENU";
-    message.classList.add("visible");
-    return;
-  }
 
   if (gameMode === "tutorial" && won && level === 5) {
     messageKicker.textContent = "TUTORIAL COMPLETE";
@@ -832,7 +435,7 @@ function spawnBurst(x: number, y: number, color: string, count = 14) {
 }
 
 function fireRocket() {
-  if (rocketCooldown > 0 || state !== "playing" || networkRole === "guest") return;
+  if (rocketCooldown > 0 || state !== "playing") return;
   const angle = cameraAngle;
   const isExplosive = ["boom", "double-boom", "sniper"].includes(carType);
   const rocketSpeed = 520 * (carType === "sniper" ? 3 : 1);
@@ -904,34 +507,6 @@ function fireRocket() {
   spawnBurst(player.x + Math.cos(angle) * 32, player.y + Math.sin(angle) * 32, "#f6bd2e", 5);
 }
 
-function fireOpponentRocket() {
-  if (opponentRocketCooldown > 0 || !connection?.open || state !== "playing") return;
-  const angle = remoteInput.angle;
-  const aimRange = 450;
-  const forwardRange = 34 + aimRange;
-  const targetZ = cameraLookHeight - Math.tan(remoteInput.pitch) * forwardRange;
-  const x = remotePlayer.x + Math.cos(angle) * 34;
-  const y = remotePlayer.y + Math.sin(angle) * 34;
-  const dx = remotePlayer.x + Math.cos(angle) * forwardRange - x;
-  const dy = remotePlayer.y + Math.sin(angle) * forwardRange - y;
-  const dz = targetZ - 30;
-  const magnitude = Math.hypot(dx, dy, dz);
-  const speed = 520;
-  rockets.push({
-    x,
-    y,
-    z: 30,
-    vx: (dx / magnitude) * speed,
-    vy: (dy / magnitude) * speed,
-    vz: (dz / magnitude) * speed,
-    angle,
-    life: 2.2,
-    explosive: false,
-    owner: "opponent",
-  });
-  opponentRocketCooldown = 0.55;
-}
-
 function fireEnemyRocket(enemy: Enemy) {
   const dx = player.x - enemy.x;
   const dy = player.y - enemy.y;
@@ -956,33 +531,6 @@ function fireEnemyRocket(enemy: Enemy) {
 function explodeRocket(rocket: Rocket) {
   spawnBurst(rocket.x, rocket.y, "#ff8a32", 32);
   shake = 10;
-  if (gameMode === "multiplayer") {
-    if (
-      rocket.owner === "player" &&
-      Math.hypot(
-        rocket.x - remotePlayer.x,
-        rocket.y - remotePlayer.y,
-        rocket.z - cameraTargetHeight,
-      ) < 105
-    ) {
-      opponentHealth -= 35;
-      if (opponentHealth <= 0) {
-        if (networkRole === "host") hostKills += 1;
-        else guestKills += 1;
-        finishMultiplayerMatch(networkRole ?? "host");
-      }
-    } else if (
-      rocket.owner === "opponent" &&
-      Math.hypot(rocket.x - player.x, rocket.y - player.y, rocket.z - cameraTargetHeight) < 105
-    ) {
-      health -= 35;
-      if (health <= 0) {
-        if (networkRole === "host") guestKills += 1;
-        else hostKills += 1;
-        finishMultiplayerMatch(networkRole === "host" ? "guest" : "host");
-      }
-    }
-  }
   for (const enemy of [...enemies]) {
     if (Math.hypot(rocket.x - enemy.x, rocket.y - enemy.y, rocket.z - cameraTargetHeight) < 105) {
       enemy.health -= 2;
@@ -1001,7 +549,7 @@ function explodeRocket(rocket: Rocket) {
 function moveVehicle(
   vehicle: typeof player,
   angle: number,
-  controls: Pick<RemoteInput, "forward" | "backward" | "left" | "right">,
+  controls: { forward: boolean; backward: boolean; left: boolean; right: boolean },
   dt: number,
 ) {
   const lateral = Number(controls.right) - Number(controls.left);
@@ -1022,25 +570,7 @@ function moveVehicle(
 
 function update(dt: number) {
   if (state !== "playing") return;
-  if (networkRole === "guest") {
-    networkTimer += dt;
-    if (networkTimer >= 0.05) {
-      networkTimer = 0;
-      sendNetworkMessage({
-        forward: keys.has("w") || keys.has("arrowup"),
-        backward: keys.has("s") || keys.has("arrowdown"),
-        left: keys.has("a") || keys.has("arrowleft"),
-        right: keys.has("d") || keys.has("arrowright"),
-        shooting: shooting || keys.has(" "),
-        angle: cameraAngle,
-        pitch: cameraPitch,
-      });
-    }
-    return;
-  }
-
   rocketCooldown = Math.max(0, rocketCooldown - dt);
-  opponentRocketCooldown = Math.max(0, opponentRocketCooldown - dt);
   if (shooting || keys.has(" ")) fireRocket();
   shake = Math.max(0, shake - dt * 20);
 
@@ -1055,11 +585,6 @@ function update(dt: number) {
     },
     dt,
   );
-  if (networkRole === "host") {
-    moveVehicle(remotePlayer, remoteInput.angle, remoteInput, dt);
-    if (remoteInput.shooting) fireOpponentRocket();
-  }
-
   camera.x = player.x;
   camera.y = player.y;
 
@@ -1105,60 +630,19 @@ function update(dt: number) {
     rocket.angle = Math.atan2(rocket.vy, rocket.vx);
     const hitFloor = rocket.z <= rocketFloorHeight;
     if (hitFloor) rocket.z = rocketFloorHeight;
-    if (rocket.owner === "enemy" || (gameMode === "multiplayer" && rocket.owner === "opponent")) {
+    if (rocket.owner === "enemy") {
       if (
         Math.hypot(rocket.x - player.x, rocket.y - player.y, rocket.z - cameraTargetHeight) <
         rocketRadius(rocket) + player.radius
       ) {
         rockets.splice(rockets.indexOf(rocket), 1);
-        if (rocket.explosive) {
-          explodeRocket(rocket);
-        } else {
-          health -= 14;
-        }
+        health -= 14;
         shake = 8;
         spawnBurst(rocket.x, rocket.y, "#ff6848", 22);
-        if (health <= 0) {
-          if (networkRole === "host") guestKills += 1;
-          else hostKills += 1;
-          if (gameMode === "multiplayer")
-            finishMultiplayerMatch(networkRole === "host" ? "guest" : "host");
-          else showEnd(false);
-        }
+        if (health <= 0) showEnd(false);
       } else if (hitFloor) {
         rockets.splice(rockets.indexOf(rocket), 1);
         spawnBurst(rocket.x, rocket.y, "#9ba6a8", 8);
-      }
-      continue;
-    }
-
-    if (gameMode === "multiplayer" && rocket.owner === "player") {
-      if (
-        Math.hypot(
-          rocket.x - remotePlayer.x,
-          rocket.y - remotePlayer.y,
-          rocket.z - cameraTargetHeight,
-        ) <
-        rocketRadius(rocket) + remotePlayer.radius
-      ) {
-        rockets.splice(rockets.indexOf(rocket), 1);
-        if (rocket.explosive) {
-          explodeRocket(rocket);
-        } else {
-          opponentHealth -= 14;
-          if (opponentHealth <= 0) {
-            if (networkRole === "host") hostKills += 1;
-            else guestKills += 1;
-            finishMultiplayerMatch(networkRole ?? "host");
-          }
-        }
-        spawnBurst(rocket.x, rocket.y, "#ff6b28", 18);
-        continue;
-      }
-      if (hitFloor) {
-        rockets.splice(rockets.indexOf(rocket), 1);
-        if (rocket.explosive) explodeRocket(rocket);
-        else spawnBurst(rocket.x, rocket.y, "#9ba6a8", 8);
       }
       continue;
     }
@@ -1204,23 +688,7 @@ function update(dt: number) {
   particles = particles.filter((particle) => particle.life > 0);
 
   updateHud();
-  if (networkRole === "host" && state === "playing") {
-    networkTimer += dt;
-    if (networkTimer >= 0.05) {
-      networkTimer = 0;
-      sendNetworkMessage({
-        type: "snapshot",
-        hostPlayer: { x: player.x, y: player.y, angle: player.angle },
-        guestPlayer: { x: remotePlayer.x, y: remotePlayer.y, angle: remotePlayer.angle },
-        hostHealth: health,
-        guestHealth: opponentHealth,
-        hostKills,
-        guestKills,
-        rockets: rockets.slice(0, 100),
-      });
-    }
-  }
-  if (gameMode !== "multiplayer" && enemies.length === 0) showEnd(true);
+  if (enemies.length === 0) showEnd(true);
 }
 
 function rocketRadius(_rocket: Rocket) {
@@ -1655,17 +1123,6 @@ function draw(ctx: CanvasRenderingContext2D) {
     ctx.restore();
   }
 
-  if (gameMode === "multiplayer") {
-    drawCar(ctx, remotePlayer.x, remotePlayer.y, remotePlayer.angle, false);
-    ctx.save();
-    const rivalBar = project3d(remotePlayer.x, remotePlayer.y, 72);
-    ctx.translate(rivalBar.x, rivalBar.y);
-    ctx.fillStyle = "#111718";
-    ctx.fillRect(-20, -3, 40, 5);
-    ctx.fillStyle = "#e85b32";
-    ctx.fillRect(-20, -3, 40 * (opponentHealth / 100), 5);
-    ctx.restore();
-  }
   drawCar(ctx, player.x, player.y, player.angle, true);
   for (const rocket of rockets) drawRocket(ctx, rocket);
 
@@ -1730,7 +1187,6 @@ document.addEventListener("mousemove", (event) => {
 });
 
 function togglePause() {
-  if (gameMode === "multiplayer") return;
   if (state === "playing") {
     clearInputs();
     state = "paused";
@@ -1760,9 +1216,7 @@ function unlockPointer() {
 }
 
 startButton.addEventListener("click", () => {
-  if (state === "won" && gameMode === "multiplayer") {
-    showMenu();
-  } else if (state === "won" && gameMode === "tutorial" && level === 5) {
+  if (state === "won" && gameMode === "tutorial" && level === 5) {
     level = 1;
     carType = "standard";
     showMenu();
@@ -1786,11 +1240,8 @@ startButton.addEventListener("click", () => {
     startGame();
     lockPointer();
   } else if (state === "lost") {
-    if (gameMode === "multiplayer") showMenu();
-    else {
-      startGame();
-      lockPointer();
-    }
+    startGame();
+    lockPointer();
   } else {
     startGame();
     lockPointer();
@@ -1810,30 +1261,6 @@ document.querySelector("#campaignModeButton")!.addEventListener("click", () => {
   startGame();
   lockPointer();
 });
-document.querySelector("#multiplayerModeButton")!.addEventListener("click", () => {
-  gameMode = "multiplayer";
-  showOnlinePanel();
-});
-hostRoomButton.addEventListener("click", () => {
-  void createRoom();
-});
-joinRoomButton.addEventListener("click", () => {
-  void joinRoom();
-});
-document.querySelector("#backToModesButton")!.addEventListener("click", showMenu);
-async function copyInviteLink() {
-  try {
-    await navigator.clipboard.writeText(inviteLinkInput.value);
-    setNetworkStatus("Invite link copied. Send it to your friend.");
-  } catch {
-    inviteLinkInput.select();
-    setNetworkStatus("Copy was blocked. Select and copy the invite link above.");
-  }
-}
-document.querySelector("#copyInviteButton")!.addEventListener("click", () => {
-  void copyInviteLink();
-});
-
 carChoices.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof Element)) return;
@@ -1859,11 +1286,4 @@ carChoices.addEventListener("click", (event) => {
 });
 pauseButton.addEventListener("click", togglePause);
 showMenu();
-const roomFromUrl = new URLSearchParams(window.location.search).get("room");
-if (roomFromUrl) {
-  gameMode = "multiplayer";
-  showOnlinePanel();
-  roomCodeInput.value = roomFromUrl;
-  void joinRoom();
-}
 requestAnimationFrame(frame);
